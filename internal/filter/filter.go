@@ -48,6 +48,14 @@ func (f *Filter) Match(entry map[string]string) bool {
 	return true
 }
 
+// Rules returns a copy of the filter's rules. This is useful for inspection
+// or debugging without exposing the internal slice directly.
+func (f *Filter) Rules() []Rule {
+	result := make([]Rule, len(f.rules))
+	copy(result, f.rules)
+	return result
+}
+
 // ParseError is returned when a filter spec cannot be parsed.
 type ParseError struct {
 	Spec   string
