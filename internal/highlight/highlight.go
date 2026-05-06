@@ -64,7 +64,17 @@ func (p *Painter) Level(level string) string {
 	}
 }
 
-// Bold returns s in bold when colour is enabled.
-func (p *Painter) Bold(s string) string {
+// BoldText returns s in bold when colour is enabled.
+func (p *Painter) BoldText(s string) string {
 	return p.Colorize(Bold, s)
+}
+
+// Timestamp returns a timestamp string styled for display.
+func (p *Painter) Timestamp(ts string) string {
+	return p.Colorize(Bold, ts)
+}
+
+// Enabled reports whether colour output is enabled for this Painter.
+func (p *Painter) Enabled() bool {
+	return p.enabled
 }
