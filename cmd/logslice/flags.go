@@ -3,66 +3,66 @@ package main
 import (
 	"flag"
 	"fmt"
-	"io"
-	"strings"
+	"os"
 )
 
+// config holds all parsed CLI flags for a logslice run.
 type config struct {
-	from    string
-	to      string
-	format  string
-	file    string
-	fields  []string
+	start   string
+	end     string
+	fields  string
 	filters []string
+	format  string
+	sample  int
+	files   []string
 }
 
-func parseFlags(args []string, stderr io.Writer) (*config, error) {
+// parseFlags parses os.Args and returns a populated config.
+func parseFlags(args []string) (*config, error) {
 	fs := flag.NewFlagSet("logslice", flag.ContinueOnError)
-	fs.SetOutput(stderr)
+	fs.SetOutput(os.Stderr)
 
 	var (
-		from    = fs.String("from", "", "start of time range (RFC3339 or common layouts)")
-		to      = fs.String("to", "", "end of time range (RFC3339 or common layouts)")
-		format  = fs.String("format", "json", "output format: json, pretty, text")
-		file    = fs.String("file", "", "input log file (defaults to stdin)")
+		start   = fs.String("start", "", "start of time range (RFC3339 or common log formats)")
+		end     = fs.String("end", "", "end of time range (RFC3339 or common log formats)")
 		fields  = fs.String("fields", "", "comma-separated list of fields to include in output")
-		filterF = fs.String("filter", "", "comma-separated field=pattern filter specs")
+		format  = fs.String("format", "json", "output format: json, pretty, or text")
+		sample  = fs.Int("sample", 1, "emit every Nth matching line (>=1)")
+		filter  multiFlag
 	)
 
-	fs.Usage = func() {
-		fmt.Fprintln(stderr, "Usage: logslice [options]")
-		fmt.Fprintln(stderr, "\nOptions:")
-		fs.PrintDefaults()
-	}
+	fs.Var(&filter, "filter", "field=pattern filter (repeatable); e.g. -filter level=error")
 
 	if err := fs.Parse(args); err != nil {
 		return nil, err
 	}
 
-	cfg := &config{
-		from:   *from,
-		to:     *to,
-		format: *format,
-		file:   *file,
+	if *sample < 1 {
+		return nil, fmt.Errorf("--sample must be >= 1")
 	}
 
-	if *fields != "" {
-		for _, f := range strings.Split(*fields, ",") {
-			f = strings.TrimSpace(f)
-			if f != "" {
-				cfg.fields = append(cfg.fields, f)
-			}
-		}
-	}
+	return &config{
+		start:   *start,
+		end:     *end,
+		fields:  *fields,
+		filters: []string(filter),
+		format:  *format,
+		sample:  *sample,
+		files:   fs.Args(),
+	}, nil
+}
 
-	if *filterF != "" {
-		for _, f := range strings.Split(*filterF, ",") {
-			f = strings.TrimSpace(f)
-			if f != "" {
-				cfg.filters = append(cfg.filters, f)
-			}
-		}
-	}
+// multiFlag is a flag.Value that accumulates repeated flag values.
+type multiFlag []string
 
-	return cfg, nil
+func (m *multiFlag) String() string {
+	if m == nil {
+		return ""
+	}
+	return fmt.Sprintf("%v", []string(*m))
+}
+
+func (m *multiFlag) Set(v string) error {
+	*m = append(*m, v)
+	return nil
 }
