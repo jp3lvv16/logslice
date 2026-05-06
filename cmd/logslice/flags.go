@@ -7,74 +7,86 @@ import (
 	"strings"
 )
 
-// config holds all parsed CLI flags.
 type config struct {
-	files      []string
 	start      string
 	end        string
 	fields     []string
 	filters    []string
 	format     string
 	sample     int
-	dedupKeys  []string
+	tail       bool
+	dedup      bool
 	dedupWin   int
-	rateLimit  float64
-	highlight  bool
-	tailFollow bool
+	rate       float64
+	transforms []string
+	truncLen   int
+	truncField string
+	flatten    bool
+	aggregate  string
+	redact     []string
+	redactPH   string
+	files      []string
 }
 
-func parseFlags(args []string) (*config, error) {
+func parseFlags() (*config, error) {
 	fs := flag.NewFlagSet("logslice", flag.ContinueOnError)
 	fs.SetOutput(os.Stderr)
 
 	var (
-		start     = fs.String("start", "", "start of time range (RFC3339 or common layouts)")
-		end       = fs.String("end", "", "end of time range")
-		fields    = fs.String("fields", "", "comma-separated list of fields to include in output")
-		filters   = fs.String("filter", "", "comma-separated field=pattern filter specs")
-		format    = fs.String("format", "json", "output format: json, pretty, text")
-		sample    = fs.Int("sample", 1, "keep every Nth line (1 = keep all)")
-		dedupKeys = fs.String("dedup", "", "comma-separated fields to use as dedup key")
-		dedupWin  = fs.Int("dedup-window", 1000, "number of recent fingerprints to track for dedup")
-		rateLimit = fs.Float64("rate", 0, "max lines/sec to output (0 = unlimited)")
-		highlight = fs.Bool("highlight", false, "colorize level field in terminal output")
-		follow    = fs.Bool("follow", false, "follow file for new lines (like tail -f)")
+		start      = fs.String("start", "", "start of time range (RFC3339 or common layouts)")
+		end        = fs.String("end", "", "end of time range")
+		fields     = fs.String("fields", "", "comma-separated fields to include in output")
+		filters    = fs.String("filter", "", "comma-separated field=pattern filter specs")
+		format     = fs.String("format", "json", "output format: json|pretty|text")
+		sample     = fs.Int("sample", 1, "emit every Nth matching line")
+		tailF      = fs.Bool("tail", false, "follow file for new lines")
+		dedup      = fs.Bool("dedup", false, "suppress duplicate log lines")
+		dedupWin   = fs.Int("dedup-window", 1000, "number of recent lines to consider for dedup")
+		rate       = fs.Float64("rate", 0, "max output lines per second (0 = unlimited)")
+		transforms = fs.String("transform", "", "comma-separated transform specs (rename:old=new, drop:field, set:field=val)")
+		truncLen   = fs.Int("trunc-len", 0, "max length for truncated field (0 = disabled)")
+		truncField = fs.String("trunc-field", "msg", "field to apply truncation to")
+		flatten    = fs.Bool("flatten", false, "flatten nested JSON objects")
+		aggregate  = fs.String("aggregate", "", "field name to aggregate value counts for")
+		redact     = fs.String("redact", "", "comma-separated field names whose values should be redacted")
+		redactPH   = fs.String("redact-placeholder", "[REDACTED]", "replacement text used by --redact")
 	)
 
-	if err := fs.Parse(args); err != nil {
+	if err := fs.Parse(os.Args[1:]); err != nil {
 		return nil, err
 	}
 
-	if *format != "json" && *format != "pretty" && *format != "text" {
-		return nil, fmt.Errorf("unknown format %q: must be json, pretty or text", *format)
-	}
-
 	cfg := &config{
-		files:      fs.Args(),
 		start:      *start,
 		end:        *end,
+		fields:     splitTrim(*fields),
+		filters:    splitTrim(*filters),
 		format:     *format,
 		sample:     *sample,
+		tail:       *tailF,
+		dedup:      *dedup,
 		dedupWin:   *dedupWin,
-		rateLimit:  *rateLimit,
-		highlight:  *highlight,
-		tailFollow: *follow,
+		rate:       *rate,
+		transforms: splitTrim(*transforms),
+		truncLen:   *truncLen,
+		truncField: *truncField,
+		flatten:    *flatten,
+		aggregate:  *aggregate,
+		redact:     splitTrim(*redact),
+		redactPH:   *redactPH,
+		files:      fs.Args(),
 	}
 
-	if *fields != "" {
-		cfg.fields = splitTrim(*fields)
+	if cfg.format != "json" && cfg.format != "pretty" && cfg.format != "text" {
+		return nil, fmt.Errorf("unknown format %q: must be json, pretty, or text", cfg.format)
 	}
-	if *filters != "" {
-		cfg.filters = splitTrim(*filters)
-	}
-	if *dedupKeys != "" {
-		cfg.dedupKeys = splitTrim(*dedupKeys)
-	}
-
 	return cfg, nil
 }
 
 func splitTrim(s string) []string {
+	if strings.TrimSpace(s) == "" {
+		return nil
+	}
 	parts := strings.Split(s, ",")
 	out := make([]string, 0, len(parts))
 	for _, p := range parts {
